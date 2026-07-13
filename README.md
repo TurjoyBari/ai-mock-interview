@@ -407,10 +407,10 @@ Built for engineers who want interview practice that feels real.
 
 | | |
 |--|--|
-| Portfolio | [your-portfolio.com](https://your-portfolio.com) |
-| LinkedIn | [linkedin.com/in/your-handle](https://linkedin.com/in/your-handle) |
-| GitHub | [github.com/your-username](https://github.com/your-username) |
-| Email | `you@example.com` |
+| Portfolio | [portfolio](https://rafiul-bari-dev.vercel.app/) |
+| LinkedIn | [linkedin](https://www.linkedin.com/in/rafiul-bari-turjo/) |
+| GitHub | [github](https://github.com/TurjoyBari) |
+| Email | `rafiulbari.dev@gmail.com` |
 
 ---
 

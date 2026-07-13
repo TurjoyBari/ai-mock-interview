@@ -12,13 +12,15 @@ import {
   Clock,
   Volume2,
   AlertCircle,
-  Type,
+  Check,
+  RotateCcw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
 import { completeInterview } from "@/lib/actions";
 import { interviewDetailPath } from "@/lib/routes";
 import {
@@ -29,19 +31,26 @@ import {
 } from "@/hooks/use-voice-interview";
 import { QuotaExceededAlert } from "@/components/ai/quota-exceeded-alert";
 import { AnswerEvaluationCard } from "@/components/interview/answer-evaluation-card";
+import { InterviewModeSwitch } from "@/components/interview/interview-mode-switch";
+import type { AnswerAnalysis, InterviewMode } from "@/types";
 
 interface VoiceInterviewSessionProps {
   interviewId: string;
   title: string;
   type: string;
   language: string;
-  duration: number;
   questions: VoiceQuestion[];
   initialMessages: VoiceMessage[];
   initialQuestionIndex: number;
+  initialClarificationRound: number;
   elapsedTime: number;
-  onElapsedTimeTick: () => void;
-  onSwitchToTextMode: () => void;
+  onMessagesChange: (messages: VoiceMessage[]) => void;
+  onQuestionIndexChange: (index: number) => void;
+  onClarificationRoundChange: (round: number) => void;
+  onDraftAnswerChange: (draft: string) => void;
+  onEvaluationChange: (evaluation: AnswerAnalysis | null) => void;
+  onSwitchMode: (mode: InterviewMode) => void;
+  switching?: boolean;
 }
 
 const STATE_LABELS: Record<VoiceInterviewState, string> = {
@@ -50,6 +59,7 @@ const STATE_LABELS: Record<VoiceInterviewState, string> = {
   aiSpeaking: "AI is speaking…",
   listening: "Listening — speak your answer",
   userSpeaking: "Hearing you…",
+  confirming: "Review your answer",
   processing: "Processing your answer…",
   generatingNextQuestion: "AI is generating the next question…",
   interviewCompleted: "Interview completed",
@@ -63,7 +73,8 @@ function VoiceIndicator({ state }: { state: VoiceInterviewState }) {
     state === "userSpeaking" ||
     state === "aiSpeaking" ||
     state === "generatingNextQuestion" ||
-    state === "processing";
+    state === "processing" ||
+    state === "confirming";
 
   const isListening = state === "listening" || state === "userSpeaking";
   const isSpeaking =
@@ -127,15 +138,19 @@ export function VoiceInterviewSession({
   questions,
   initialMessages,
   initialQuestionIndex,
+  initialClarificationRound,
   elapsedTime,
-  onSwitchToTextMode,
+  onMessagesChange,
+  onQuestionIndexChange,
+  onClarificationRoundChange,
+  onDraftAnswerChange,
+  onEvaluationChange,
+  onSwitchMode,
+  switching,
 }: VoiceInterviewSessionProps) {
   const router = useRouter();
-  const [messages, setMessages] = useState(initialMessages);
-  const [currentQuestionIndex, setCurrentQuestionIndex] =
-    useState(initialQuestionIndex);
-  const [ending, setEnding] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [ending, setEnding] = useState(false);
 
   const handleComplete = useCallback(async () => {
     await completeInterview(interviewId);
@@ -146,13 +161,19 @@ export function VoiceInterviewSession({
   const {
     voiceState,
     transcript,
+    setTranscript,
     interimTranscript,
     errorMessage,
     quotaError,
     isQuotaRetrying,
     messages: voiceMessages,
+    currentQuestionIndex,
     currentQuestion,
     stopInterview,
+    pauseVoice,
+    confirmTranscript,
+    discardConfirmTranscript,
+    continueSpeaking,
     retryAfterQuota,
     dismissQuotaError,
     lastEvaluation,
@@ -162,23 +183,32 @@ export function VoiceInterviewSession({
     questions,
     initialMessages,
     initialQuestionIndex,
-    onMessagesChange: setMessages,
-    onQuestionIndexChange: setCurrentQuestionIndex,
+    initialClarificationRound,
+    onMessagesChange,
+    onQuestionIndexChange,
+    onClarificationRoundChange,
+    onDraftAnswerChange,
+    onEvaluationChange,
     onComplete: handleComplete,
     elapsedTime,
   });
 
-  const displayMessages = voiceMessages.length > 0 ? voiceMessages : messages;
   const progress = ((currentQuestionIndex + 1) / questions.length) * 100;
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [displayMessages, transcript, interimTranscript]);
+  }, [voiceMessages, transcript, interimTranscript]);
 
   const formatTime = (seconds: number) => {
     const m = Math.floor(seconds / 60);
     const s = seconds % 60;
     return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+  };
+
+  const handleModeChange = (mode: InterviewMode) => {
+    if (mode === "voice" || switching) return;
+    pauseVoice();
+    onSwitchMode("text");
   };
 
   const handleEndInterview = async () => {
@@ -200,28 +230,32 @@ export function VoiceInterviewSession({
 
   return (
     <div className="mx-auto flex h-[calc(100vh-8rem)] max-w-5xl flex-col gap-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-bold">{title}</h1>
-          <div className="mt-1 flex items-center gap-2">
+          <div className="mt-1 flex flex-wrap items-center gap-2">
             <Badge variant="secondary">{type.replace(/_/g, " ")}</Badge>
-            <Badge className="bg-primary/15 text-primary hover:bg-primary/15">
-              Voice Mode
-            </Badge>
             <span className="flex items-center gap-1 text-sm text-muted-foreground">
               <Clock className="h-3.5 w-3.5" />
               {formatTime(elapsedTime)}
             </span>
           </div>
         </div>
-        <div className="w-48">
-          <div className="mb-1 flex justify-between text-xs text-muted-foreground">
-            <span>
-              Q{currentQuestionIndex + 1}/{questions.length}
-            </span>
-            <span>{Math.round(progress)}%</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <InterviewModeSwitch
+            mode="voice"
+            onChange={handleModeChange}
+            disabled={ending || switching || voiceState === "interviewCompleted"}
+          />
+          <div className="w-40">
+            <div className="mb-1 flex justify-between text-xs text-muted-foreground">
+              <span>
+                Q{currentQuestionIndex + 1}/{questions.length}
+              </span>
+              <span>{Math.round(progress)}%</span>
+            </div>
+            <Progress value={progress} />
           </div>
-          <Progress value={progress} />
         </div>
       </div>
 
@@ -245,12 +279,9 @@ export function VoiceInterviewSession({
                 {errorMessage}
               </p>
             </div>
-            <div className="flex gap-3">
-              <Button variant="outline" onClick={onSwitchToTextMode}>
-                <Type className="mr-2 h-4 w-4" />
-                Switch to Text Mode
-              </Button>
-            </div>
+            <Button variant="outline" onClick={() => handleModeChange("text")}>
+              Switch to Text Mode
+            </Button>
           </CardContent>
         </Card>
       ) : (
@@ -260,7 +291,7 @@ export function VoiceInterviewSession({
           <ScrollArea className="flex-1 border-t border-border/50 p-4">
             <div className="space-y-4">
               <AnimatePresence>
-                {displayMessages.map((message) => (
+                {voiceMessages.map((message) => (
                   <motion.div
                     key={message.id}
                     initial={{ opacity: 0, y: 10 }}
@@ -302,24 +333,63 @@ export function VoiceInterviewSession({
                 </motion.div>
               )}
 
-              {(transcript || interimTranscript) && (
+              {(transcript || interimTranscript || voiceState === "confirming") && (
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   className="rounded-xl border border-border/50 bg-card p-4"
                 >
-                  <p className="mb-1 text-xs font-medium text-muted-foreground">
-                    Your Answer (live transcript)
+                  <p className="mb-2 text-xs font-medium text-muted-foreground">
+                    {voiceState === "confirming"
+                      ? "Edit your answer, then confirm to submit"
+                      : "Your Answer (live transcript)"}
                   </p>
-                  <p className="text-sm">
-                    {transcript}
-                    {interimTranscript && (
-                      <span className="text-muted-foreground">
-                        {transcript ? " " : ""}
-                        {interimTranscript}
-                      </span>
-                    )}
-                  </p>
+                  {voiceState === "confirming" ? (
+                    <div className="space-y-3">
+                      <Textarea
+                        value={transcript}
+                        onChange={(e) => setTranscript(e.target.value)}
+                        className="min-h-[100px] resize-none"
+                        autoFocus
+                      />
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => void confirmTranscript(transcript)}
+                          disabled={transcript.trim().length < 3}
+                        >
+                          <Check className="mr-1.5 h-3.5 w-3.5" />
+                          Confirm & Submit
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => void continueSpeaking()}
+                        >
+                          <Mic className="mr-1.5 h-3.5 w-3.5" />
+                          Keep Speaking
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void discardConfirmTranscript()}
+                        >
+                          <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                          Discard
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm">
+                      {transcript}
+                      {interimTranscript && (
+                        <span className="text-muted-foreground">
+                          {transcript ? " " : ""}
+                          {interimTranscript}
+                        </span>
+                      )}
+                    </p>
+                  )}
                 </motion.div>
               )}
               <div ref={scrollRef} />
@@ -328,28 +398,21 @@ export function VoiceInterviewSession({
 
           <CardContent className="border-t border-border/50 p-4">
             <p className="text-center text-xs text-muted-foreground">
-              {voiceState === "listening" || voiceState === "userSpeaking"
-                ? "Speak naturally. Your answer will be submitted after a brief pause."
-                : voiceState === "aiSpeaking"
-                  ? "Please wait while the interviewer speaks…"
-                  : voiceState === "generatingNextQuestion"
-                    ? "Generating your next question…"
-                    : "Voice interview in progress"}
+              {voiceState === "confirming"
+                ? "Review the transcript, edit if needed, then confirm."
+                : voiceState === "listening" || voiceState === "userSpeaking"
+                  ? "Speak naturally. After a brief pause you can review before submitting."
+                  : voiceState === "aiSpeaking"
+                    ? "Please wait while the interviewer speaks…"
+                    : voiceState === "generatingNextQuestion"
+                      ? "Generating your next question…"
+                      : "Voice interview in progress"}
             </p>
           </CardContent>
         </Card>
       )}
 
-      <div className="flex items-center justify-between">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={onSwitchToTextMode}
-          disabled={ending}
-        >
-          <Type className="mr-2 h-4 w-4" />
-          Switch to Text Mode
-        </Button>
+      <div className="flex justify-end">
         <Button
           variant="destructive"
           onClick={handleEndInterview}

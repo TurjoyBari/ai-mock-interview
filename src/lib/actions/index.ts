@@ -23,6 +23,7 @@ import {
   estimateInterviewDurationMinutes,
   sumTopicQuestionCounts,
 } from "@/lib/interview-topics";
+import { INTERVIEW_TOPIC_LIBRARY } from "@/data/interview-topic-library";
 import {
   interviewConfigSchema,
   noteSchema,
@@ -35,10 +36,14 @@ import type {
   AnswerAnalysis,
   TopicSelection,
   ResumeAnalysis,
+  Difficulty,
+  TopicDifficulty,
 } from "@/types";
+import type { DashboardRange } from "@/types/dashboard";
 import { INTERVIEW_TYPES } from "@/lib/constants";
 import { aiLogger } from "@/lib/ai/logger";
 import { toActionError } from "@/lib/ai/action-errors";
+import { getDashboardAnalytics } from "@/lib/queries";
 
 async function measureStep<T>(
   stage: string,
@@ -194,6 +199,127 @@ export async function createInterview(data: unknown) {
     await prisma.interview.delete({ where: { id: interview.id } }).catch(() => {});
     throw toActionError(error);
   }
+}
+
+function resolveTypeForTopic(topic: string): string {
+  for (const [key, topics] of Object.entries(INTERVIEW_TOPIC_LIBRARY)) {
+    if (key === "custom") continue;
+    if (topics.includes(topic)) return key;
+  }
+  return "technical";
+}
+
+/** Creates a focused practice interview for a weak topic (dashboard "Practice Again"). */
+export async function createTopicPracticeInterview(topicName: string) {
+  const topic = topicName.trim();
+  if (!topic) throw new Error("Topic is required");
+
+  const questionCount = 5;
+  const duration = estimateInterviewDurationMinutes(questionCount);
+
+  return createInterview({
+    type: resolveTypeForTopic(topic),
+    difficulty: "medium",
+    techStack: [],
+    duration,
+    questionCount,
+    language: "en",
+    mode: "text",
+    cameraEnabled: false,
+    hintsEnabled: true,
+    topics: [
+      {
+        name: topic,
+        difficulty: "mixed",
+        questionCount,
+        isWeak: true,
+      },
+    ],
+    questionDistribution: "custom",
+  });
+}
+
+/** Retakes a completed interview with the same type, difficulty, and topics. */
+export async function retryInterview(interviewId: string) {
+  const user = await requireDbUser();
+
+  const interview = await prisma.interview.findFirst({
+    where: { id: interviewId, userId: user.id },
+    include: { questions: { select: { topic: true } } },
+  });
+
+  if (!interview) throw new Error("Interview not found");
+
+  const meta = (interview.metadata ?? {}) as {
+    topics?: TopicSelection[];
+    selectedTopics?: string[];
+    topicDifficulty?: Record<string, TopicDifficulty>;
+    topicQuestionCounts?: Record<string, number>;
+  };
+
+  let topics: TopicSelection[] = [];
+
+  if (Array.isArray(meta.topics) && meta.topics.length > 0) {
+    topics = meta.topics.map((t) => ({
+      name: t.name,
+      difficulty: t.difficulty ?? "mixed",
+      questionCount: Math.max(1, t.questionCount || 1),
+      isWeak: t.isWeak,
+    }));
+  } else if (meta.selectedTopics?.length) {
+    topics = meta.selectedTopics.map((name) => ({
+      name,
+      difficulty: meta.topicDifficulty?.[name] ?? "mixed",
+      questionCount: Math.max(1, meta.topicQuestionCounts?.[name] ?? 1),
+    }));
+  } else {
+    const counts = new Map<string, number>();
+    for (const q of interview.questions) {
+      const name = q.topic?.trim() || "General";
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    topics = [...counts.entries()].map(([name, questionCount]) => ({
+      name,
+      difficulty: "mixed" as TopicDifficulty,
+      questionCount,
+    }));
+  }
+
+  if (!topics.length) {
+    topics = [
+      {
+        name: "General",
+        difficulty: "mixed",
+        questionCount: Math.max(1, interview.questionCount || 5),
+      },
+    ];
+  }
+
+  const totalQuestions = sumTopicQuestionCounts(topics);
+  const duration =
+    estimateInterviewDurationMinutes(totalQuestions) || interview.duration;
+
+  return createInterview({
+    type: interview.type,
+    difficulty: interview.difficulty as Difficulty,
+    company: interview.company ?? undefined,
+    customCompany: interview.customCompany ?? undefined,
+    jobRole: interview.jobRole ?? undefined,
+    experienceLevel: interview.experienceLevel ?? undefined,
+    techStack: interview.techStack,
+    duration,
+    questionCount: totalQuestions,
+    language: interview.language || "en",
+    mode: (interview.mode as "text" | "voice") || "text",
+    cameraEnabled: interview.cameraEnabled,
+    hintsEnabled: interview.hintsEnabled,
+    topics,
+    questionDistribution: "custom",
+  });
+}
+
+export async function fetchDashboardAnalytics(range: DashboardRange = "all") {
+  return getDashboardAnalytics(range);
 }
 
 export async function startInterview(interviewId: string) {

@@ -1,107 +1,107 @@
 import { prisma } from "@/lib/prisma";
 import { requireDbUser } from "@/lib/auth";
 import type { DashboardStats } from "@/types";
-import { format } from "date-fns";
+import type { DashboardAnalytics, DashboardRange } from "@/types/dashboard";
+import {
+  buildDashboardAnalytics,
+  type AnalyticsInterview,
+} from "@/lib/dashboard/analytics";
 
-export async function getDashboardStats(): Promise<DashboardStats> {
+export async function getDashboardAnalytics(
+  range: DashboardRange = "all"
+): Promise<DashboardAnalytics> {
   const user = await requireDbUser();
 
-  const [
-    recentInterviews,
-    completedInterviews,
-    scheduledInterviews,
-    latestFeedback,
-    progressSnapshots,
-  ] = await Promise.all([
-    prisma.interview.findMany({
-      where: { userId: user.id },
-      orderBy: { createdAt: "desc" },
-      take: 5,
-      select: {
-        id: true,
-        title: true,
-        overallScore: true,
-        createdAt: true,
-        type: true,
+  const completed = await prisma.interview.findMany({
+    where: { userId: user.id, status: "completed" },
+    orderBy: { completedAt: "asc" },
+    include: {
+      feedback: {
+        select: {
+          overallScore: true,
+          communicationScore: true,
+          confidenceScore: true,
+          technicalScore: true,
+          behaviorScore: true,
+          weakTopics: true,
+          strongTopics: true,
+          weakAreas: true,
+          strongAreas: true,
+          suggestions: true,
+        },
       },
-    }),
-    prisma.interview.findMany({
-      where: { userId: user.id, status: "completed" },
-      select: {
-        overallScore: true,
-        communicationScore: true,
-        technicalScore: true,
-        behavioralScore: true,
-        completedAt: true,
+      report: { select: { id: true } },
+      answers: {
+        select: {
+          score: true,
+          analysis: true,
+          question: { select: { topic: true, content: true } },
+        },
       },
-    }),
-    prisma.interview.findMany({
-      where: { userId: user.id, status: "scheduled" },
-      orderBy: { createdAt: "asc" },
-      take: 3,
-      select: { id: true, title: true, createdAt: true },
-    }),
-    prisma.feedback.findMany({
-      where: { interview: { userId: user.id } },
-      orderBy: { createdAt: "desc" },
-      take: 3,
-      select: { suggestions: true, detailedExplanation: true },
-    }),
-    prisma.progressSnapshot.findMany({
-      where: { userId: user.id },
-      orderBy: { date: "desc" },
-      take: 30,
-    }),
-  ]);
-
-  const scores = completedInterviews.filter((i) => i.overallScore != null);
-  const avg = (arr: (number | null)[]) => {
-    const valid = arr.filter((v): v is number => v != null);
-    return valid.length
-      ? valid.reduce((a, b) => a + b, 0) / valid.length
-      : 0;
-  };
-
-  const weakTopicCounts = new Map<string, number>();
-  const strongTopicCounts = new Map<string, number>();
-
-  const feedbacks = await prisma.feedback.findMany({
-    where: { interview: { userId: user.id } },
-    select: { weakAreas: true, strongAreas: true },
+      _count: { select: { answers: true, questions: true } },
+    },
   });
 
-  feedbacks.forEach((f) => {
-    f.weakAreas.forEach((t) =>
-      weakTopicCounts.set(t, (weakTopicCounts.get(t) ?? 0) + 1)
-    );
-    f.strongAreas.forEach((t) =>
-      strongTopicCounts.set(t, (strongTopicCounts.get(t) ?? 0) + 1)
-    );
-  });
+  const mapped: AnalyticsInterview[] = completed.map((i) => ({
+    id: i.id,
+    title: i.title,
+    type: i.type,
+    difficulty: i.difficulty,
+    techStack: i.techStack,
+    duration: i.duration,
+    questionCount: i.questionCount,
+    status: i.status,
+    overallScore: i.overallScore,
+    communicationScore: i.communicationScore,
+    technicalScore: i.technicalScore,
+    behavioralScore: i.behavioralScore,
+    startedAt: i.startedAt,
+    completedAt: i.completedAt,
+    createdAt: i.createdAt,
+    feedback: i.feedback,
+    report: i.report,
+    answers: i.answers.map((a) => ({
+      score: a.score,
+      analysis: a.analysis as AnalyticsInterview["answers"][number]["analysis"],
+      question: a.question,
+    })),
+    _count: i._count,
+  }));
 
-  const sortTopics = (map: Map<string, number>) =>
-    [...map.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([topic]) => topic);
+  return buildDashboardAnalytics(mapped, range);
+}
 
-  const progressData =
-    progressSnapshots.length > 0
-      ? progressSnapshots
-          .reverse()
-          .map((p) => ({
-            date: format(p.date, "MMM d"),
-            score: p.avgTechnicalScore ?? 0,
-          }))
-      : completedInterviews
-          .filter((i) => i.completedAt && i.overallScore)
-          .slice(-10)
-          .map((i) => ({
-            date: format(i.completedAt!, "MMM d"),
-            score: i.overallScore!,
-          }));
+export async function getDashboardStats(): Promise<DashboardStats> {
+  const analytics = await getDashboardAnalytics("all");
+  const user = await requireDbUser();
 
-  const latestSnapshot = progressSnapshots[0];
+  const [recentInterviews, scheduledInterviews, latestFeedback] =
+    await Promise.all([
+      prisma.interview.findMany({
+        where: { userId: user.id },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+        select: {
+          id: true,
+          title: true,
+          overallScore: true,
+          createdAt: true,
+          type: true,
+        },
+      }),
+      prisma.interview.findMany({
+        where: { userId: user.id, status: "scheduled" },
+        orderBy: { createdAt: "asc" },
+        take: 3,
+        select: { id: true, title: true, createdAt: true },
+      }),
+      prisma.feedback.findMany({
+        where: { interview: { userId: user.id } },
+        orderBy: { createdAt: "desc" },
+        take: 3,
+        select: { suggestions: true },
+      }),
+    ]);
 
   return {
     upcomingPractice: scheduledInterviews.map((i) => ({
@@ -116,16 +116,19 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       date: i.createdAt,
       type: i.type,
     })),
-    averageScore: avg(scores.map((s) => s.overallScore)),
-    communicationScore: avg(completedInterviews.map((i) => i.communicationScore)),
-    technicalScore: avg(completedInterviews.map((i) => i.technicalScore)),
-    behavioralScore: avg(completedInterviews.map((i) => i.behavioralScore)),
-    weakTopics: sortTopics(weakTopicCounts),
-    strongTopics: sortTopics(strongTopicCounts),
+    averageScore: analytics.overview.averageOverallScore,
+    communicationScore: analytics.overview.averageCommunicationScore,
+    technicalScore: analytics.overview.averageTechnicalScore,
+    behavioralScore: analytics.overview.averageBehavioralScore,
+    weakTopics: analytics.weakTopics.slice(0, 5),
+    strongTopics: analytics.strongTopics.slice(0, 5),
     recentFeedback: latestFeedback.flatMap((f) => f.suggestions).slice(0, 5),
-    progressData,
-    practiceStreak: latestSnapshot?.practiceStreak ?? 0,
-    totalInterviews: completedInterviews.length,
+    progressData: analytics.trends.map((t) => ({
+      date: t.date,
+      score: t.overall,
+    })),
+    practiceStreak: analytics.overview.practiceStreak,
+    totalInterviews: analytics.overview.totalInterviews,
   };
 }
 

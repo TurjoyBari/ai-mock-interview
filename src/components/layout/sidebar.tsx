@@ -40,7 +40,7 @@ const iconMap = {
 };
 
 const navItems = [
-  { href: "/dashboard", label: "Home", icon: "LayoutDashboard" as const },
+  { href: "/dashboard", label: "Dashboard", icon: "LayoutDashboard" as const },
   { href: "/interviews/new", label: "New Interview", icon: "PlusCircle" as const },
   { href: "/interviews/history", label: "History", icon: "History" as const },
   { href: "/resume", label: "Resume", icon: "FileText" as const },

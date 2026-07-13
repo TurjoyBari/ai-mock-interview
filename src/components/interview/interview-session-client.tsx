@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { motion, AnimatePresence } from "framer-motion";
@@ -21,14 +21,15 @@ import { fetchApi } from "@/lib/api/client";
 import { CodeEditor } from "@/components/coding/code-editor";
 import { VoiceInterviewSession } from "@/components/interview/voice-interview-session";
 import { AnswerEvaluationCard } from "@/components/interview/answer-evaluation-card";
+import { InterviewModeSwitch } from "@/components/interview/interview-mode-switch";
+import {
+  InterviewSessionProvider,
+  useInterviewSession,
+  type SessionMessage,
+} from "@/context/interview-session-context";
 import { interviewDetailPath } from "@/lib/routes";
-import type { AnswerAnalysis } from "@/types";
-
-interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-}
+import { isVoiceInterviewSupported } from "@/lib/voice/browser-speech";
+import type { AnswerAnalysis, InterviewMode } from "@/types";
 
 interface Question {
   id: string;
@@ -47,35 +48,58 @@ interface InterviewData {
   status: string;
   duration: number;
   questions: Question[];
-  messages: Message[];
+  messages: SessionMessage[];
   answers: { questionId: string }[];
+}
+
+function estimateSpeakingSeconds(text: string): number {
+  // ~150 words/min ≈ 12.5 chars/sec for English prose
+  const chars = text.trim().length;
+  if (!chars) return 0;
+  return Math.max(1, Math.round(chars / 12.5));
+}
+
+function formatTime(seconds: number) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
 }
 
 function TextInterviewSession({
   interview,
   interviewId,
-  messages,
-  setMessages,
-  currentQuestionIndex,
-  setCurrentQuestionIndex,
-  elapsedTime,
+  onSwitchMode,
+  switching,
 }: {
   interview: InterviewData;
   interviewId: string;
-  messages: Message[];
-  setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
-  currentQuestionIndex: number;
-  setCurrentQuestionIndex: React.Dispatch<React.SetStateAction<number>>;
-  elapsedTime: number;
+  onSwitchMode: (mode: InterviewMode) => void;
+  switching?: boolean;
 }) {
   const router = useRouter();
-  const [input, setInput] = useState("");
+  const {
+    messages,
+    setMessages,
+    currentQuestionIndex,
+    setCurrentQuestionIndex,
+    clarificationRound,
+    setClarificationRound,
+    elapsedTime,
+    lastEvaluation,
+    setLastEvaluation,
+    draftAnswer,
+    setDraftAnswer,
+  } = useInterviewSession();
+
+  const [input, setInput] = useState(draftAnswer);
   const [submitting, setSubmitting] = useState(false);
   const [showCoding, setShowCoding] = useState(false);
-  const [lastEvaluation, setLastEvaluation] = useState<AnswerAnalysis | null>(null);
-  const [clarificationRound, setClarificationRound] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const messageIdRef = useRef(0);
+  const messageIdRef = useRef(messages.length);
+
+  useEffect(() => {
+    setDraftAnswer(input);
+  }, [input, setDraftAnswer]);
 
   const nextMessageId = () => {
     messageIdRef.current += 1;
@@ -85,28 +109,24 @@ function TextInterviewSession({
   const currentQuestion = interview.questions[currentQuestionIndex];
   const progress =
     ((currentQuestionIndex + 1) / interview.questions.length) * 100;
+  const speakingEstimate = estimateSpeakingSeconds(input);
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-  };
-
   const handleSubmitAnswer = async () => {
-    if (!input.trim() || !currentQuestion || !interview) return;
+    if (!input.trim() || !currentQuestion || submitting) return;
 
     setSubmitting(true);
-    const userMessage: Message = {
+    const userMessage: SessionMessage = {
       id: nextMessageId(),
       role: "user",
       content: input,
     };
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
+    setDraftAnswer("");
 
     try {
       await submitAnswer({
@@ -135,7 +155,7 @@ function TextInterviewSession({
         throw new Error("Empty interviewer response");
       }
 
-      const assistantMessage: Message = {
+      const assistantMessage: SessionMessage = {
         id: nextMessageId(),
         role: "assistant",
         content: response,
@@ -159,7 +179,9 @@ function TextInterviewSession({
         }
       } else {
         setClarificationRound((r) => r + 1);
-        toast.info("Follow-up: the interviewer wants you to elaborate on this question.");
+        toast.info(
+          "Follow-up: the interviewer wants you to elaborate on this question."
+        );
       }
     } catch (error) {
       toast.error(
@@ -189,28 +211,34 @@ function TextInterviewSession({
 
   return (
     <div className="mx-auto flex h-[calc(100vh-8rem)] max-w-5xl flex-col gap-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-bold">{interview.title}</h1>
-          <div className="mt-1 flex items-center gap-2">
+          <div className="mt-1 flex flex-wrap items-center gap-2">
             <Badge variant="secondary">
               {interview.type.replace(/_/g, " ")}
             </Badge>
-            <Badge variant="outline">Text Mode</Badge>
             <span className="flex items-center gap-1 text-sm text-muted-foreground">
               <Clock className="h-3.5 w-3.5" />
               {formatTime(elapsedTime)}
             </span>
           </div>
         </div>
-        <div className="w-48">
-          <div className="mb-1 flex justify-between text-xs text-muted-foreground">
-            <span>
-              Q{currentQuestionIndex + 1}/{interview.questions.length}
-            </span>
-            <span>{Math.round(progress)}%</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <InterviewModeSwitch
+            mode="text"
+            onChange={onSwitchMode}
+            disabled={submitting || switching}
+          />
+          <div className="w-40">
+            <div className="mb-1 flex justify-between text-xs text-muted-foreground">
+              <span>
+                Q{currentQuestionIndex + 1}/{interview.questions.length}
+              </span>
+              <span>{Math.round(progress)}%</span>
+            </div>
+            <Progress value={progress} />
           </div>
-          <Progress value={progress} />
         </div>
       </div>
 
@@ -296,23 +324,31 @@ function TextInterviewSession({
 
         <CardContent className="border-t border-border/50 p-4">
           <div className="flex gap-2">
-            <Textarea
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="Type your answer..."
-              className="min-h-[60px] resize-none"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSubmitAnswer();
-                }
-              }}
-              disabled={submitting}
-            />
+            <div className="flex-1 space-y-2">
+              <Textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="Type your answer… (Enter to submit, Shift+Enter for new line)"
+                className="min-h-[80px] resize-none"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    void handleSubmitAnswer();
+                  }
+                }}
+                disabled={submitting}
+              />
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>{input.length} characters</span>
+                <span>
+                  ~{speakingEstimate}s speaking time
+                </span>
+              </div>
+            </div>
             <div className="flex flex-col gap-2">
               <Button
                 size="icon"
-                onClick={handleSubmitAnswer}
+                onClick={() => void handleSubmitAnswer()}
                 disabled={submitting || !input.trim()}
               >
                 {submitting ? (
@@ -329,7 +365,7 @@ function TextInterviewSession({
       <div className="flex justify-end">
         <Button
           variant="outline"
-          onClick={handleComplete}
+          onClick={() => void handleComplete()}
           disabled={submitting}
         >
           End Interview
@@ -340,15 +376,136 @@ function TextInterviewSession({
   );
 }
 
+function InterviewSessionBody({
+  interview,
+  interviewId,
+}: {
+  interview: InterviewData;
+  interviewId: string;
+}) {
+  const {
+    activeMode,
+    setActiveMode,
+    messages,
+    setMessages,
+    currentQuestionIndex,
+    setCurrentQuestionIndex,
+    clarificationRound,
+    setClarificationRound,
+    elapsedTime,
+    setDraftAnswer,
+    setLastEvaluation,
+  } = useInterviewSession();
+
+  const [switching, setSwitching] = useState(false);
+  const voiceMountKey = useRef(0);
+
+  const handleSwitchMode = useCallback(
+    (mode: InterviewMode) => {
+      if (mode === activeMode) return;
+
+      if (mode === "voice" && !isVoiceInterviewSupported()) {
+        toast.error(
+          "Voice Mode needs Chrome or Edge with Speech Recognition support. Staying in Text Mode."
+        );
+        return;
+      }
+
+      setSwitching(true);
+      if (mode === "voice") {
+        voiceMountKey.current += 1;
+      }
+      setActiveMode(mode);
+      toast.success(
+        mode === "voice" ? "Switched to Voice Mode" : "Switched to Text Mode"
+      );
+      // Allow animation frame for smooth transition
+      requestAnimationFrame(() => setSwitching(false));
+    },
+    [activeMode, setActiveMode]
+  );
+
+  return (
+    <AnimatePresence mode="wait">
+      {activeMode === "voice" ? (
+        <motion.div
+          key={`voice-${voiceMountKey.current}`}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ duration: 0.2 }}
+        >
+          <VoiceInterviewSession
+            interviewId={interviewId}
+            title={interview.title}
+            type={interview.type}
+            language={interview.language}
+            questions={interview.questions}
+            initialMessages={messages}
+            initialQuestionIndex={currentQuestionIndex}
+            initialClarificationRound={clarificationRound}
+            elapsedTime={elapsedTime}
+            onMessagesChange={setMessages}
+            onQuestionIndexChange={setCurrentQuestionIndex}
+            onClarificationRoundChange={setClarificationRound}
+            onDraftAnswerChange={setDraftAnswer}
+            onEvaluationChange={setLastEvaluation}
+            onSwitchMode={handleSwitchMode}
+            switching={switching}
+          />
+        </motion.div>
+      ) : (
+        <motion.div
+          key="text"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ duration: 0.2 }}
+        >
+          <TextInterviewSession
+            interview={interview}
+            interviewId={interviewId}
+            onSwitchMode={handleSwitchMode}
+            switching={switching}
+          />
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function InterviewSessionShell({
+  interview,
+  interviewId,
+}: {
+  interview: InterviewData;
+  interviewId: string;
+}) {
+  const { setElapsedTime } = useInterviewSession();
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    if (interview.status === "in_progress") {
+      timerRef.current = setInterval(() => {
+        setElapsedTime((t) => t + 1);
+      }, 1000);
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [interview.status, setElapsedTime]);
+
+  return (
+    <InterviewSessionBody interview={interview} interviewId={interviewId} />
+  );
+}
+
 export function InterviewSessionClient({ interviewId }: { interviewId: string }) {
   const [interview, setInterview] = useState<InterviewData | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [elapsedTime, setElapsedTime] = useState(0);
-  const [useTextMode, setUseTextMode] = useState(false);
-  const timerRef = useRef<NodeJS.Timeout | null>(null);
+  const [bootMessages, setBootMessages] = useState<SessionMessage[]>([]);
+  const [bootQuestionIndex, setBootQuestionIndex] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -368,7 +525,9 @@ export function InterviewSessionClient({ interviewId }: { interviewId: string })
         if (cancelled) return;
 
         if (!data.questions?.length) {
-          setLoadError("This interview has no questions. Please create a new interview.");
+          setLoadError(
+            "This interview has no questions. Please create a new interview."
+          );
           return;
         }
 
@@ -379,7 +538,7 @@ export function InterviewSessionClient({ interviewId }: { interviewId: string })
           );
           if (cancelled) return;
           setInterview(updatedData);
-          setMessages(
+          setBootMessages(
             (updatedData.messages ?? []).map((m, i) => ({
               id: m.id ?? `msg-${i}`,
               role: m.role as "user" | "assistant",
@@ -391,14 +550,14 @@ export function InterviewSessionClient({ interviewId }: { interviewId: string })
           setInterview(data);
         } else {
           setInterview(data);
-          setMessages(
+          setBootMessages(
             (data.messages ?? []).map((m, i) => ({
               id: m.id ?? `msg-${i}`,
               role: m.role as "user" | "assistant",
               content: m.content,
             }))
           );
-          setCurrentQuestionIndex(data.answers?.length ?? 0);
+          setBootQuestionIndex(data.answers?.length ?? 0);
         }
       } catch (error) {
         if (!cancelled) {
@@ -419,16 +578,9 @@ export function InterviewSessionClient({ interviewId }: { interviewId: string })
     };
   }, [interviewId]);
 
-  useEffect(() => {
-    if (interview?.status === "in_progress") {
-      timerRef.current = setInterval(() => {
-        setElapsedTime((t) => t + 1);
-      }, 1000);
-    }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [interview?.status]);
+  const initialMode = useMemo<InterviewMode>(() => {
+    return interview?.mode === "voice" ? "voice" : "text";
+  }, [interview?.mode]);
 
   if (loading) {
     return (
@@ -449,38 +601,13 @@ export function InterviewSessionClient({ interviewId }: { interviewId: string })
     );
   }
 
-  const isVoiceMode = interview.mode === "voice" && !useTextMode;
-
-  if (isVoiceMode) {
-    return (
-      <VoiceInterviewSession
-        interviewId={interviewId}
-        title={interview.title}
-        type={interview.type}
-        language={interview.language}
-        duration={interview.duration}
-        questions={interview.questions}
-        initialMessages={messages}
-        initialQuestionIndex={currentQuestionIndex}
-        elapsedTime={elapsedTime}
-        onElapsedTimeTick={() => setElapsedTime((t) => t + 1)}
-        onSwitchToTextMode={() => {
-          toast.info("Switched to Text Mode for this session.");
-          setUseTextMode(true);
-        }}
-      />
-    );
-  }
-
   return (
-    <TextInterviewSession
-      interview={interview}
-      interviewId={interviewId}
-      messages={messages}
-      setMessages={setMessages}
-      currentQuestionIndex={currentQuestionIndex}
-      setCurrentQuestionIndex={setCurrentQuestionIndex}
-      elapsedTime={elapsedTime}
-    />
+    <InterviewSessionProvider
+      initialMode={initialMode}
+      initialMessages={bootMessages}
+      initialQuestionIndex={bootQuestionIndex}
+    >
+      <InterviewSessionShell interview={interview} interviewId={interviewId} />
+    </InterviewSessionProvider>
   );
 }

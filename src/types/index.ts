@@ -353,3 +353,16 @@ export interface SearchResult {
   subtitle?: string;
   href: string;
 }
+
+export type {
+  DashboardRange,
+  DashboardOverview,
+  DashboardTrendPoint,
+  DashboardTopicStat,
+  DashboardHistoryItem,
+  DashboardInsight,
+  DashboardReadiness,
+  DashboardRoadmapWeek,
+  DashboardAchievement,
+  DashboardAnalytics,
+} from "./dashboard";

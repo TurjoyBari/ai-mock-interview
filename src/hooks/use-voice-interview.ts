@@ -21,6 +21,7 @@ export type VoiceInterviewState =
   | "aiSpeaking"
   | "listening"
   | "userSpeaking"
+  | "confirming"
   | "processing"
   | "generatingNextQuestion"
   | "interviewCompleted"
@@ -46,8 +47,12 @@ interface UseVoiceInterviewOptions {
   questions: VoiceQuestion[];
   initialMessages: VoiceMessage[];
   initialQuestionIndex: number;
+  initialClarificationRound?: number;
   onMessagesChange: (messages: VoiceMessage[]) => void;
   onQuestionIndexChange: (index: number) => void;
+  onClarificationRoundChange?: (round: number) => void;
+  onDraftAnswerChange?: (draft: string) => void;
+  onEvaluationChange?: (evaluation: AnswerAnalysis | null) => void;
   onComplete: () => Promise<void>;
   elapsedTime: number;
 }
@@ -85,8 +90,12 @@ export function useVoiceInterview({
   questions,
   initialMessages,
   initialQuestionIndex,
+  initialClarificationRound = 0,
   onMessagesChange,
   onQuestionIndexChange,
+  onClarificationRoundChange,
+  onDraftAnswerChange,
+  onEvaluationChange,
   onComplete,
   elapsedTime,
 }: UseVoiceInterviewOptions) {
@@ -104,7 +113,7 @@ export function useVoiceInterview({
   const [currentQuestionIndex, setCurrentQuestionIndex] =
     useState(initialQuestionIndex);
 
-  const messageIdRef = useRef(0);
+  const messageIdRef = useRef(initialMessages.length);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const speakAbortRef = useRef<AbortController | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -124,7 +133,7 @@ export function useVoiceInterview({
     answer: string;
     clarificationRound: number;
   } | null>(null);
-  const clarificationRoundRef = useRef(0);
+  const clarificationRoundRef = useRef(initialClarificationRound);
   const langCode = mapLanguageCode(language);
 
   useEffect(() => {
@@ -133,6 +142,26 @@ export function useVoiceInterview({
     transcriptRef.current = transcript;
     voiceStateRef.current = voiceState;
   }, [messages, currentQuestionIndex, transcript, voiceState]);
+
+  useEffect(() => {
+    onDraftAnswerChange?.(transcript);
+  }, [transcript, onDraftAnswerChange]);
+
+  const setEvaluation = useCallback(
+    (evaluation: AnswerAnalysis | null) => {
+      setLastEvaluation(evaluation);
+      onEvaluationChange?.(evaluation);
+    },
+    [onEvaluationChange]
+  );
+
+  const syncClarificationRound = useCallback(
+    (round: number) => {
+      clarificationRoundRef.current = round;
+      onClarificationRoundChange?.(round);
+    },
+    [onClarificationRoundChange]
+  );
 
   const transitionTo = useCallback((next: VoiceInterviewState, detail?: string) => {
     voiceLog("state", {
@@ -198,6 +227,47 @@ export function useVoiceInterview({
     isProcessingRef.current = false;
   }, [clearRecognitionRestartTimer, clearSilenceTimer, stopRecognition]);
 
+  /** Stop STT/TTS without ending the interview — used for mode switches. */
+  const pauseVoice = useCallback(() => {
+    clearSilenceTimer();
+    clearRecognitionRestartTimer();
+    speakAbortRef.current?.abort();
+    speakAbortRef.current = null;
+    stopSpeaking();
+    stopRecognition();
+    isSpeakingRef.current = false;
+    isProcessingRef.current = false;
+    sessionActiveRef.current = false;
+    transitionTo("idle", "paused-for-mode-switch");
+
+    const snapshot = {
+      messages: messagesRef.current,
+      questionIndex: questionIndexRef.current,
+      clarificationRound: clarificationRoundRef.current,
+      draftAnswer: transcriptRef.current.trim(),
+      lastEvaluation,
+    };
+
+    onMessagesChange(snapshot.messages);
+    onQuestionIndexChange(snapshot.questionIndex);
+    onClarificationRoundChange?.(snapshot.clarificationRound);
+    onDraftAnswerChange?.(snapshot.draftAnswer);
+    onEvaluationChange?.(snapshot.lastEvaluation);
+
+    return snapshot;
+  }, [
+    clearRecognitionRestartTimer,
+    clearSilenceTimer,
+    lastEvaluation,
+    onClarificationRoundChange,
+    onDraftAnswerChange,
+    onEvaluationChange,
+    onMessagesChange,
+    onQuestionIndexChange,
+    stopRecognition,
+    transitionTo,
+  ]);
+
   const buildQuestionSpeech = useCallback(
     (questionIndex: number) => {
       const question = questions[questionIndex];
@@ -207,10 +277,18 @@ export function useVoiceInterview({
   );
 
   const buildInitialSpeech = useCallback(() => {
+    const questionSpeech = buildQuestionSpeech(questionIndexRef.current);
+
+    // Resuming after a mode switch — only re-read the current question.
+    if (messagesRef.current.length > 0 || questionIndexRef.current > 0) {
+      return questionSpeech
+        ? `Continuing from where we left off. ${questionSpeech}`
+        : "Continuing from where we left off. Please share your answer.";
+    }
+
     const lastAssistant = [...messagesRef.current]
       .reverse()
       .find((m) => m.role === "assistant");
-    const questionSpeech = buildQuestionSpeech(questionIndexRef.current);
 
     if (lastAssistant && questionSpeech) {
       return `${lastAssistant.content} ${questionSpeech}`;
@@ -246,50 +324,58 @@ export function useVoiceInterview({
     [langCode, stopRecognition, transitionTo]
   );
 
-  const startListening = useCallback(() => {
-    if (!sessionActiveRef.current) {
-      voiceLog("recognition:blocked", { reason: "session-inactive" });
-      return;
-    }
+  const startListening = useCallback(
+    (opts?: { keepTranscript?: boolean }) => {
+      if (!sessionActiveRef.current) {
+        voiceLog("recognition:blocked", { reason: "session-inactive" });
+        return;
+      }
 
-    if (isSpeakingRef.current) {
-      voiceLog("recognition:blocked", { reason: "still-speaking" });
-      return;
-    }
+      if (isSpeakingRef.current) {
+        voiceLog("recognition:blocked", { reason: "still-speaking" });
+        return;
+      }
 
-    if (isProcessingRef.current) {
-      voiceLog("recognition:blocked", { reason: "still-processing" });
-      return;
-    }
+      if (isProcessingRef.current) {
+        voiceLog("recognition:blocked", { reason: "still-processing" });
+        return;
+      }
 
-    const recognition = recognitionRef.current;
-    if (!recognition) {
-      voiceLog("recognition:blocked", { reason: "no-recognition" });
-      return;
-    }
+      const recognition = recognitionRef.current;
+      if (!recognition) {
+        voiceLog("recognition:blocked", { reason: "no-recognition" });
+        return;
+      }
 
-    if (isListeningRef.current) {
-      voiceLog("recognition:already-active");
-      return;
-    }
+      if (isListeningRef.current) {
+        voiceLog("recognition:already-active");
+        return;
+      }
 
-    setTranscript("");
-    setInterimTranscript("");
-    transcriptRef.current = "";
-    isListeningRef.current = true;
-    transitionTo("listening", "mic-start");
+      if (!opts?.keepTranscript) {
+        setTranscript("");
+        setInterimTranscript("");
+        transcriptRef.current = "";
+      } else {
+        setInterimTranscript("");
+      }
 
-    try {
-      recognition.lang = langCode;
-      recognition.start();
-      voiceLog("recognition:start");
-    } catch (error) {
-      isListeningRef.current = false;
-      voiceLog("recognition:start-failed", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }, [langCode, transitionTo]);
+      isListeningRef.current = true;
+      transitionTo("listening", "mic-start");
+
+      try {
+        recognition.lang = langCode;
+        recognition.start();
+        voiceLog("recognition:start");
+      } catch (error) {
+        isListeningRef.current = false;
+        voiceLog("recognition:start-failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    },
+    [langCode, transitionTo]
+  );
 
   const resumeListening = useCallback(async () => {
     if (!sessionActiveRef.current) return;
@@ -342,7 +428,7 @@ export function useVoiceInterview({
       };
 
       syncMessages([...payload.priorMessages, assistantMessage]);
-      setLastEvaluation(evaluation);
+      setEvaluation(evaluation);
       answerSavedForQuestionRef.current = null;
       pendingInterviewerPayloadRef.current = null;
       setQuotaError(null);
@@ -368,17 +454,17 @@ export function useVoiceInterview({
       }
 
       if (!shouldAdvanceQuestion) {
-        clarificationRoundRef.current += 1;
+        syncClarificationRound(clarificationRoundRef.current + 1);
         transitionTo("aiSpeaking", "clarification-follow-up");
         await speak(response);
         await resumeListening();
         return;
       }
 
-      clarificationRoundRef.current = 0;
+      syncClarificationRound(0);
       const nextIndex = questionIndexRef.current + 1;
       syncQuestionIndex(nextIndex);
-      setLastEvaluation(null);
+      setEvaluation(null);
 
       const nextQuestionSpeech = buildQuestionSpeech(nextIndex);
       const speech = nextQuestionSpeech
@@ -394,15 +480,17 @@ export function useVoiceInterview({
       onComplete,
       questions.length,
       resumeListening,
+      setEvaluation,
       speak,
+      syncClarificationRound,
       syncMessages,
       syncQuestionIndex,
       transitionTo,
     ]
   );
 
-  const submitTranscript = useCallback(async () => {
-    const finalText = transcriptRef.current.trim();
+  const submitTranscript = useCallback(async (overrideText?: string) => {
+    const finalText = (overrideText ?? transcriptRef.current).trim();
     const question = questions[questionIndexRef.current];
 
     if (
@@ -436,6 +524,7 @@ export function useVoiceInterview({
     setTranscript("");
     setInterimTranscript("");
     transcriptRef.current = "";
+    onDraftAnswerChange?.("");
 
     try {
       transitionTo("generatingNextQuestion", "gemini-request");
@@ -505,6 +594,7 @@ export function useVoiceInterview({
     clearSilenceTimer,
     elapsedTime,
     interviewId,
+    onDraftAnswerChange,
     processInterviewerResponse,
     questions,
     resumeListening,
@@ -512,6 +602,45 @@ export function useVoiceInterview({
     syncMessages,
     transitionTo,
   ]);
+
+  const prepareConfirmTranscript = useCallback(() => {
+    const text = transcriptRef.current.trim();
+    if (!text || text.length < MIN_TRANSCRIPT_LENGTH) {
+      return;
+    }
+    clearSilenceTimer();
+    stopRecognition();
+    transitionTo("confirming", "awaiting-user-confirm");
+  }, [clearSilenceTimer, stopRecognition, transitionTo]);
+
+  const confirmTranscript = useCallback(
+    async (editedText?: string) => {
+      const text = (editedText ?? transcriptRef.current).trim();
+      if (editedText != null) {
+        transcriptRef.current = editedText;
+        setTranscript(editedText);
+      }
+      await submitTranscript(text);
+    },
+    [submitTranscript]
+  );
+
+  const discardConfirmTranscript = useCallback(async () => {
+    setTranscript("");
+    setInterimTranscript("");
+    transcriptRef.current = "";
+    onDraftAnswerChange?.("");
+    if (sessionActiveRef.current) {
+      await resumeListening();
+    }
+  }, [onDraftAnswerChange, resumeListening]);
+
+  const continueSpeaking = useCallback(async () => {
+    if (sessionActiveRef.current) {
+      transitionTo("listening", "continue-after-confirm");
+      startListening({ keepTranscript: true });
+    }
+  }, [startListening, transitionTo]);
 
   const retryAfterQuota = useCallback(async () => {
     const pending = pendingInterviewerPayloadRef.current;
@@ -564,9 +693,9 @@ export function useVoiceInterview({
   const scheduleSubmitOnSilence = useCallback(() => {
     clearSilenceTimer();
     silenceTimerRef.current = setTimeout(() => {
-      void submitTranscript();
+      prepareConfirmTranscript();
     }, SILENCE_SUBMIT_MS);
-  }, [clearSilenceTimer, submitTranscript]);
+  }, [clearSilenceTimer, prepareConfirmTranscript]);
 
   const scheduleRecognitionRestart = useCallback(() => {
     clearRecognitionRestartTimer();
@@ -575,6 +704,7 @@ export function useVoiceInterview({
         sessionActiveRef.current &&
         !isSpeakingRef.current &&
         !isProcessingRef.current &&
+        voiceStateRef.current !== "confirming" &&
         (voiceStateRef.current === "listening" ||
           voiceStateRef.current === "userSpeaking")
       ) {
@@ -668,6 +798,7 @@ export function useVoiceInterview({
         sessionActiveRef.current &&
         !isSpeakingRef.current &&
         !isProcessingRef.current &&
+        voiceStateRef.current !== "confirming" &&
         (voiceStateRef.current === "listening" ||
           voiceStateRef.current === "userSpeaking")
       ) {
@@ -784,6 +915,11 @@ export function useVoiceInterview({
   return {
     voiceState,
     transcript,
+    setTranscript: (value: string) => {
+      transcriptRef.current = value;
+      setTranscript(value);
+      onDraftAnswerChange?.(value);
+    },
     interimTranscript,
     errorMessage,
     quotaError,
@@ -792,7 +928,11 @@ export function useVoiceInterview({
     currentQuestionIndex,
     currentQuestion: questions[currentQuestionIndex] ?? null,
     stopInterview,
+    pauseVoice,
     beginVoiceInterview,
+    confirmTranscript,
+    discardConfirmTranscript,
+    continueSpeaking,
     retryAfterQuota,
     dismissQuotaError: () => setQuotaError(null),
     lastEvaluation,

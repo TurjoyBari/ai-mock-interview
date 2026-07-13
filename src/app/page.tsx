@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
-import { redirect } from "next/navigation";
 import {
   Mic,
   Brain,
@@ -10,8 +9,10 @@ import {
   Sparkles,
   ArrowRight,
   CheckCircle2,
+  Mail,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { SiteNavbar } from "@/components/layout/site-navbar";
 
 const features = [
   {
@@ -65,34 +66,17 @@ const companies = [
 
 export default async function LandingPage() {
   const { userId } = await auth();
-  if (userId) redirect("/dashboard");
+  const isSignedIn = Boolean(userId);
 
   return (
-    <div className="min-h-screen bg-background">
+    <div id="home" className="min-h-screen scroll-smooth bg-background">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -left-1/4 top-0 h-[600px] w-[600px] rounded-full bg-primary/10 blur-3xl" />
         <div className="absolute -right-1/4 top-1/3 h-[500px] w-[500px] rounded-full bg-violet-500/10 blur-3xl" />
         <div className="absolute bottom-0 left-1/3 h-[400px] w-[400px] rounded-full bg-blue-500/10 blur-3xl" />
       </div>
 
-      <header className="relative border-b border-border/50 bg-background/80 backdrop-blur-xl">
-        <div className="container mx-auto flex h-16 max-w-6xl items-center justify-between px-4">
-          <div className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-              <Mic className="h-4 w-4" />
-            </div>
-            <span className="text-lg font-bold">InterviewAI</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" asChild>
-              <Link href="/sign-in">Sign In</Link>
-            </Button>
-            <Button asChild>
-              <Link href="/sign-up">Get Started</Link>
-            </Button>
-          </div>
-        </div>
-      </header>
+      <SiteNavbar />
 
       <main className="relative">
         <section className="container mx-auto max-w-6xl px-4 py-24 text-center">
@@ -113,48 +97,48 @@ export default async function LandingPage() {
               companies 24/7.
             </p>
             <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-              <Button size="lg" asChild>
-                <Link href="/sign-up">
-                  Start Practicing
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
-              </Button>
-              <Button size="lg" variant="outline" asChild>
-                <Link href="/sign-in">Sign In</Link>
-              </Button>
+              {isSignedIn ? (
+                <Button size="lg" asChild>
+                  <Link href="/dashboard">
+                    Go to Dashboard
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Link>
+                </Button>
+              ) : (
+                <>
+                  <Button size="lg" asChild>
+                    <Link href="/sign-up">
+                      Start Practicing
+                      <ArrowRight className="ml-2 h-4 w-4" />
+                    </Link>
+                  </Button>
+                  <Button size="lg" variant="outline" asChild>
+                    <Link href="/sign-in">Sign In</Link>
+                  </Button>
+                </>
+              )}
             </div>
-          </div>
-
-          <div className="mt-16 flex flex-wrap items-center justify-center gap-6 text-sm text-muted-foreground">
-            {companies.map((company) => (
-              <span
-                key={company}
-                className="rounded-lg border border-border/30 bg-card/30 px-4 py-2 backdrop-blur-sm"
-              >
-                {company}
-              </span>
-            ))}
           </div>
         </section>
 
-        <section className="container mx-auto max-w-6xl px-4 py-24">
-          <div className="mb-16 text-center">
-            <h2 className="text-3xl font-bold tracking-tight">
-              Everything You Need to Succeed
-            </h2>
+        <section
+          id="features"
+          className="container mx-auto max-w-6xl scroll-mt-24 px-4 py-16"
+        >
+          <div className="mb-10 text-center">
+            <h2 className="text-3xl font-bold tracking-tight">Features</h2>
             <p className="mt-2 text-muted-foreground">
-              A complete interview preparation platform built for serious
-              candidates
+              Everything you need to prepare with confidence
             </p>
           </div>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
             {features.map((feature) => (
               <div
                 key={feature.title}
-                className="group rounded-2xl border border-border/50 bg-card/50 p-6 backdrop-blur-sm transition-all hover:border-primary/30 hover:shadow-xl hover:shadow-primary/5"
+                className="rounded-2xl border border-border/50 bg-card/50 p-6 backdrop-blur-sm"
               >
-                <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 transition-colors group-hover:bg-primary/20">
-                  <feature.icon className="h-6 w-6 text-primary" />
+                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                  <feature.icon className="h-5 w-5" />
                 </div>
                 <h3 className="mb-2 text-lg font-semibold">{feature.title}</h3>
                 <p className="text-sm text-muted-foreground">
@@ -165,43 +149,110 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        <section className="container mx-auto max-w-6xl px-4 py-24">
-          <div className="rounded-3xl border border-border/50 bg-gradient-to-br from-primary/10 via-card/50 to-violet-500/10 p-12 text-center backdrop-blur-sm">
-            <h2 className="text-3xl font-bold tracking-tight">
-              Ready to Ace Your Interview?
-            </h2>
-            <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
-              Join thousands of engineers who improved their interview skills
-              with AI-powered practice.
+        <section
+          id="about"
+          className="container mx-auto max-w-6xl scroll-mt-24 px-4 py-16"
+        >
+          <div className="mx-auto max-w-3xl rounded-3xl border border-border/50 bg-card/40 p-8 text-center backdrop-blur-sm sm:p-12">
+            <h2 className="text-3xl font-bold tracking-tight">About</h2>
+            <p className="mt-4 text-muted-foreground">
+              InterviewAI is a complete interview preparation platform — not just
+              a question generator. Practice technical, behavioral, HR, and coding
+              interviews with adaptive AI, voice conversations, ATS resume
+              analysis, and detailed performance reports.
             </p>
-            <ul className="mx-auto mt-8 flex max-w-md flex-col gap-3 text-left">
-              {[
-                "18+ interview types",
-                "Company-specific questions",
-                "Real-time AI feedback",
-                "Progress tracking & analytics",
-              ].map((item) => (
-                <li key={item} className="flex items-center gap-2 text-sm">
-                  <CheckCircle2 className="h-4 w-4 text-primary" />
-                  {item}
-                </li>
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+              {companies.map((company) => (
+                <span
+                  key={company}
+                  className="rounded-full border border-border/50 bg-card/40 px-4 py-1.5 text-sm"
+                >
+                  {company}
+                </span>
               ))}
-            </ul>
-            <Button size="lg" className="mt-8" asChild>
-              <Link href="/sign-up">
-                Get Started Free
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
+            </div>
+          </div>
+        </section>
+
+        <section
+          id="pricing"
+          className="container mx-auto max-w-6xl scroll-mt-24 px-4 py-16"
+        >
+          <div className="mb-10 text-center">
+            <h2 className="text-3xl font-bold tracking-tight">Pricing</h2>
+            <p className="mt-2 text-muted-foreground">
+              Start free and upgrade when you are ready
+            </p>
+          </div>
+          <div className="mx-auto grid max-w-4xl gap-6 md:grid-cols-2">
+            <div className="rounded-2xl border border-border/50 bg-card/50 p-8 backdrop-blur-sm">
+              <p className="text-sm font-medium text-muted-foreground">Free</p>
+              <p className="mt-2 text-4xl font-bold">$0</p>
+              <ul className="mt-6 space-y-3 text-sm text-muted-foreground">
+                {[
+                  "Core mock interviews",
+                  "Resume ATS score",
+                  "Basic reports",
+                ].map((item) => (
+                  <li key={item} className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-primary" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+              <Button className="mt-8 w-full" variant="outline" asChild>
+                <Link href={isSignedIn ? "/dashboard" : "/sign-up"}>
+                  {isSignedIn ? "Open Dashboard" : "Get Started"}
+                </Link>
+              </Button>
+            </div>
+            <div className="rounded-2xl border border-primary/40 bg-primary/5 p-8 backdrop-blur-sm">
+              <p className="text-sm font-medium text-primary">Pro</p>
+              <p className="mt-2 text-4xl font-bold">
+                $19
+                <span className="text-base font-normal text-muted-foreground">
+                  /mo
+                </span>
+              </p>
+              <ul className="mt-6 space-y-3 text-sm text-muted-foreground">
+                {[
+                  "Unlimited AI interviews",
+                  "Voice mode + coaching",
+                  "Job description matching",
+                  "Priority feedback",
+                ].map((item) => (
+                  <li key={item} className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-primary" />
+                    {item}
+                  </li>
+                ))}
+              </ul>
+              <Button className="mt-8 w-full" asChild>
+                <Link href={isSignedIn ? "/dashboard" : "/sign-up"}>
+                  {isSignedIn ? "Continue Practicing" : "Start Pro Trial"}
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </section>
+
+        <section
+          id="contact"
+          className="container mx-auto max-w-6xl scroll-mt-24 px-4 pb-24 pt-8"
+        >
+          <div className="rounded-3xl border border-border/50 bg-gradient-to-br from-primary/10 via-card/60 to-violet-500/10 p-10 text-center backdrop-blur-sm">
+            <Mail className="mx-auto mb-4 h-8 w-8 text-primary" />
+            <h2 className="mb-3 text-3xl font-bold tracking-tight">Contact</h2>
+            <p className="mx-auto mb-6 max-w-xl text-muted-foreground">
+              Questions, feedback, or partnership ideas? Reach out and we will
+              get back to you.
+            </p>
+            <Button size="lg" variant="outline" asChild>
+              <a href="mailto:hello@interviewai.app">hello@interviewai.app</a>
             </Button>
           </div>
         </section>
       </main>
-
-      <footer className="relative border-t border-border/50 py-8">
-        <div className="container mx-auto max-w-6xl px-4 text-center text-sm text-muted-foreground">
-          <p>InterviewAI — Personal AI Mock Interview Platform</p>
-        </div>
-      </footer>
     </div>
   );
 }

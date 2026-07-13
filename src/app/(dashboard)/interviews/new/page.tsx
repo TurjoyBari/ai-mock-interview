@@ -24,7 +24,12 @@ import {
   COMPANIES,
   EXPERIENCE_LEVELS,
 } from "@/lib/constants";
-import { QUICK_TECH_STACK, estimateInterviewDurationMinutes, sumTopicQuestionCounts } from "@/lib/interview-topics";
+import {
+  QUICK_TECH_STACK,
+  estimateInterviewDurationMinutes,
+  filterTopicsForInterviewType,
+  sumTopicQuestionCounts,
+} from "@/lib/interview-topics";
 import { interviewConfigSchema, type InterviewConfigInput } from "@/lib/validations";
 import { createInterview } from "@/lib/actions";
 import { interviewSessionPath } from "@/lib/routes";
@@ -36,9 +41,9 @@ import {
   isRateLimitError,
 } from "@/components/ai/quota-exceeded-alert";
 import { Loader2, Mic, Type } from "lucide-react";
-import type { TopicSelection } from "@/types";
+import type { InterviewType, TopicSelection } from "@/types";
 
-/** Map specialized interview types to a matching tech chip for topic loading. */
+/** Map specialized interview types to a matching tech chip (metadata for AI context). */
 const TYPE_TO_TECH: Record<string, string> = {
   javascript: "JavaScript",
   react: "React",
@@ -120,6 +125,15 @@ export default function NewInterviewPage() {
 
   const selectInterviewType = (type: string) => {
     setValue("type", type, { shouldDirty: true });
+
+    // Topics come only from the selected interview type library
+    const nextTopics = filterTopicsForInterviewType(
+      type as InterviewType,
+      topics,
+      techStack
+    );
+    syncTotalsFromTopics(nextTopics);
+
     const mapped = TYPE_TO_TECH[type];
     if (mapped && !techStack.includes(mapped)) {
       setValue("techStack", [...techStack, mapped], { shouldDirty: true });
@@ -348,6 +362,7 @@ export default function NewInterviewPage() {
           </CardHeader>
           <CardContent>
             <TopicSelectionPanel
+              key={interviewType}
               interviewType={interviewType}
               techStack={techStack}
               topics={topics}

@@ -1,204 +1,18 @@
 import type { InterviewType, TopicDifficulty, TopicSelection } from "@/types";
+import {
+  INTERVIEW_TOPIC_LIBRARY,
+  INTERVIEW_TOPIC_LIBRARY_LABELS,
+  getLibraryTopicsForType,
+} from "@/data/interview-topic-library";
 
-/** Catalog of selectable interview topics keyed by technology / interview family. */
+/**
+ * @deprecated Prefer INTERVIEW_TOPIC_LIBRARY — kept for custom/tech-stack resolution.
+ * Mirrors type libraries plus tech aliases used by custom interviews.
+ */
 export const TOPIC_CATALOG: Record<string, string[]> = {
-  javascript: [
-    "Variables",
-    "Data Types",
-    "Scope",
-    "Hoisting",
-    "Closures",
-    "Lexical Environment",
-    "Execution Context",
-    "Event Loop",
-    "Promises",
-    "Async/Await",
-    "this",
-    "Prototype",
-    "Modules",
-    "DOM",
-    "Fetch API",
-    "Array Methods",
-    "Objects",
-    "Error Handling",
-  ],
-  react: [
-    "Components",
-    "JSX",
-    "Props",
-    "State",
-    "Hooks",
-    "useEffect",
-    "useMemo",
-    "useCallback",
-    "Context API",
-    "React Router",
-    "Performance",
-    "Custom Hooks",
-    "Error Boundaries",
-  ],
-  nextjs: [
-    "App Router",
-    "Server Components",
-    "Client Components",
-    "Server Actions",
-    "API Routes",
-    "Middleware",
-    "Caching",
-    "Metadata",
-    "Authentication",
-  ],
-  nodejs: [
-    "Event Loop",
-    "Express",
-    "Middleware",
-    "REST API",
-    "Authentication",
-    "JWT",
-    "Streams",
-    "File System",
-    "Security",
-  ],
-  typescript: [
-    "Types vs Interfaces",
-    "Generics",
-    "Utility Types",
-    "Type Guards",
-    "Discriminated Unions",
-    "Enums",
-    "Strict Mode",
-    "Mapped Types",
-  ],
-  python: [
-    "Data Structures",
-    "Decorators",
-    "Generators",
-    "OOP",
-    "Asyncio",
-    "Error Handling",
-    "Modules & Packages",
-    "GIL",
-  ],
-  database: [
-    "SQL Joins",
-    "Indexing",
-    "Normalization",
-    "Transactions",
-    "ACID",
-    "Query Optimization",
-    "NoSQL",
-    "Migrations",
-  ],
-  frontend: [
-    "HTML Semantics",
-    "CSS Layout",
-    "Browser Rendering",
-    "Performance",
-    "Accessibility",
-    "State Management",
-    "HTTP & CORS",
-    "Responsive Design",
-  ],
-  backend: [
-    "REST API Design",
-    "Authentication",
-    "Authorization",
-    "Caching",
-    "Database Design",
-    "Error Handling",
-    "Scalability",
-    "Security",
-  ],
-  fullstack: [
-    "API Design",
-    "Auth Flows",
-    "State Management",
-    "SSR vs CSR",
-    "Database Modeling",
-    "Deployment",
-    "Error Handling",
-    "Performance",
-  ],
-  system_design: [
-    "Scalability",
-    "Load Balancing",
-    "Caching",
-    "Databases",
-    "Message Queues",
-    "API Design",
-    "Consistency",
-    "Availability",
-  ],
-  coding: [
-    "Arrays",
-    "Strings",
-    "Hash Maps",
-    "Trees",
-    "Graphs",
-    "Dynamic Programming",
-    "Recursion",
-    "Sorting & Searching",
-  ],
-  devops: [
-    "CI/CD",
-    "Docker",
-    "Kubernetes",
-    "Monitoring",
-    "Infrastructure as Code",
-    "Networking",
-    "Security",
-    "Cloud Services",
-  ],
-  aiml: [
-    "Supervised Learning",
-    "Unsupervised Learning",
-    "Neural Networks",
-    "Feature Engineering",
-    "Model Evaluation",
-    "Overfitting",
-    "Transformers",
-    "MLOps",
-  ],
-  dotnet: [
-    "C# Fundamentals",
-    "ASP.NET Core",
-    "Entity Framework",
-    "Dependency Injection",
-    "Middleware",
-    "LINQ",
-    "Async Programming",
-    "Authentication",
-  ],
-  behavioral: [
-    "Leadership",
-    "Conflict Resolution",
-    "Failure & Learning",
-    "Teamwork",
-    "Ownership",
-    "Communication",
-    "Prioritization",
-    "Impact",
-  ],
-  hr: [
-    "Tell Me About Yourself",
-    "Motivation",
-    "Strengths & Weaknesses",
-    "Career Goals",
-    "Culture Fit",
-    "Salary Expectations",
-    "Availability",
-    "Questions for Interviewer",
-  ],
-  technical: [
-    "Data Structures",
-    "Algorithms",
-    "System Design Basics",
-    "APIs",
-    "Databases",
-    "Networking",
-    "Security",
-    "Debugging",
-  ],
+  ...Object.fromEntries(
+    Object.entries(INTERVIEW_TOPIC_LIBRARY).filter(([key]) => key !== "custom")
+  ),
 };
 
 /** Popular technologies shown as quick-select chips on the create form. */
@@ -212,7 +26,7 @@ export const QUICK_TECH_STACK = [
   "SQL",
 ] as const;
 
-/** Map interview type → primary topic catalog key. */
+/** Map interview type → primary topic catalog key (legacy). */
 export const INTERVIEW_TYPE_TOPIC_KEY: Partial<Record<InterviewType, string>> = {
   javascript: "javascript",
   react: "react",
@@ -263,40 +77,64 @@ const TECH_STACK_TOPIC_ALIASES: Record<string, string> = {
   dotnet: "dotnet",
 };
 
-export function resolveTopicCatalogKeys(
-  interviewType: InterviewType,
-  techStack: string[] = []
-): string[] {
+function resolveCustomCatalogKeys(techStack: string[] = []): string[] {
   const keys = new Set<string>();
-
-  // Tech stack first — user expectation when picking JavaScript/React chips
   for (const tech of techStack) {
     const alias = TECH_STACK_TOPIC_ALIASES[tech.trim().toLowerCase()];
     if (alias && TOPIC_CATALOG[alias]) keys.add(alias);
   }
-
-  const typeKey = INTERVIEW_TYPE_TOPIC_KEY[interviewType];
-  if (typeKey && TOPIC_CATALOG[typeKey]) keys.add(typeKey);
-
-  if (keys.size === 0 && TOPIC_CATALOG.technical) keys.add("technical");
+  if (keys.size === 0) keys.add("technical");
   return [...keys];
+}
+
+/**
+ * Resolve which topic catalogs apply.
+ * Non-custom interview types use ONLY that type's static library (tech stack ignored).
+ * Custom interviews use tech-stack chips.
+ */
+export function resolveTopicCatalogKeys(
+  interviewType: InterviewType,
+  techStack: string[] = []
+): string[] {
+  if (interviewType === "custom") {
+    return resolveCustomCatalogKeys(techStack);
+  }
+  if (getLibraryTopicsForType(interviewType).length > 0) {
+    return [interviewType];
+  }
+  return ["technical"];
 }
 
 export function getAvailableTopics(
   interviewType: InterviewType,
   techStack: string[] = []
 ): { catalogKey: string; label: string; topics: string[] }[] {
-  return resolveTopicCatalogKeys(interviewType, techStack).map((key) => ({
-    catalogKey: key,
-    label: formatCatalogLabel(key),
-    topics: TOPIC_CATALOG[key] ?? [],
-  }));
+  if (interviewType === "custom") {
+    return resolveCustomCatalogKeys(techStack).map((key) => ({
+      catalogKey: key,
+      label: formatCatalogLabel(key),
+      topics: TOPIC_CATALOG[key] ?? [],
+    }));
+  }
+
+  const topics = getLibraryTopicsForType(interviewType);
+  return [
+    {
+      catalogKey: interviewType,
+      label: INTERVIEW_TOPIC_LIBRARY_LABELS[interviewType] ?? formatCatalogLabel(interviewType),
+      topics,
+    },
+  ];
 }
 
 export function getFlatAvailableTopicNames(
   interviewType: InterviewType,
   techStack: string[] = []
 ): string[] {
+  if (interviewType !== "custom") {
+    return [...getLibraryTopicsForType(interviewType)];
+  }
+
   const seen = new Set<string>();
   const names: string[] = [];
   for (const catalog of getAvailableTopics(interviewType, techStack)) {
@@ -310,28 +148,21 @@ export function getFlatAvailableTopicNames(
   return names;
 }
 
+/** Keep only selections that exist in the current interview type library. */
+export function filterTopicsForInterviewType(
+  interviewType: InterviewType,
+  topics: TopicSelection[],
+  techStack: string[] = []
+): TopicSelection[] {
+  const allowed = new Set(getFlatAvailableTopicNames(interviewType, techStack));
+  return topics.filter((t) => allowed.has(t.name));
+}
+
 function formatCatalogLabel(key: string): string {
-  const labels: Record<string, string> = {
-    javascript: "JavaScript",
-    react: "React",
-    nextjs: "Next.js",
-    nodejs: "Node.js",
-    typescript: "TypeScript",
-    python: "Python",
-    database: "Database",
-    frontend: "Frontend",
-    backend: "Backend",
-    fullstack: "Full Stack",
-    system_design: "System Design",
-    coding: "Coding",
-    devops: "DevOps",
-    aiml: "AI/ML",
-    dotnet: ".NET",
-    behavioral: "Behavioral",
-    hr: "HR",
-    technical: "Technical",
-  };
-  return labels[key] ?? key;
+  return (
+    INTERVIEW_TOPIC_LIBRARY_LABELS[key as InterviewType] ??
+    key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  );
 }
 
 export function createDefaultTopicSelection(

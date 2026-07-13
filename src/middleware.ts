@@ -6,13 +6,19 @@ const isPublicRoute = createRouteMatcher([
   "/sign-in(.*)",
   "/sign-up(.*)",
   "/api/webhooks/clerk",
-  // UploadThing callbacks are signed by UploadThing — must not be blocked by Clerk
   "/api/uploadthing(.*)",
   "/share/(.*)",
 ]);
 
+const isAuthRoute = createRouteMatcher(["/sign-in(.*)", "/sign-up(.*)"]);
+
 export default clerkMiddleware(async (auth, request) => {
   const { userId, redirectToSignIn } = await auth();
+
+  // Logged-in users shouldn't stay on sign-in / sign-up
+  if (userId && isAuthRoute(request)) {
+    return NextResponse.redirect(new URL("/dashboard", request.url));
+  }
 
   if (isPublicRoute(request)) {
     return NextResponse.next();

@@ -92,17 +92,18 @@ export function TopicSelectionPanel({
         <div>
           <Label className="text-base">Interview Topics</Label>
           <p className="mt-1 text-sm text-muted-foreground">
-            Select topics, set difficulty and question count for each. Total
-            interview length is calculated automatically.
+            Topics update automatically when you change Interview Type. Select
+            topics, set difficulty and question count for each.
           </p>
         </div>
         <Badge variant="secondary">{topics.length} selected</Badge>
       </div>
 
-      {catalogs.length === 0 ? (
+      {catalogs.length === 0 || allTopicNames.length === 0 ? (
         <div className="rounded-xl border border-dashed border-border/70 p-6 text-center text-sm text-muted-foreground">
-          Select an interview type like JavaScript / React / Next.js, or add a
-          technology to the stack to load topics.
+          {interviewType === "custom"
+            ? "Add technologies to your stack to load custom topics."
+            : "No topics found for this interview type."}
         </div>
       ) : (
         <>

@@ -1,4 +1,5 @@
 import { Sidebar } from "./sidebar";
+import { BackToHomeButton } from "./back-to-home-button";
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -10,6 +11,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
       <Sidebar />
       <main className="relative lg:pl-64">
         <div className="container mx-auto max-w-7xl px-4 py-8 pt-16 lg:pt-8">
+          <BackToHomeButton />
           {children}
         </div>
       </main>

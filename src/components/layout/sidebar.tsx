@@ -40,7 +40,7 @@ const iconMap = {
 };
 
 const navItems = [
-  { href: "/dashboard", label: "Dashboard", icon: "LayoutDashboard" as const },
+  { href: "/dashboard", label: "Home", icon: "LayoutDashboard" as const },
   { href: "/interviews/new", label: "New Interview", icon: "PlusCircle" as const },
   { href: "/interviews/history", label: "History", icon: "History" as const },
   { href: "/resume", label: "Resume", icon: "FileText" as const },
@@ -59,13 +59,19 @@ function SidebarNavContent({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <>
       <div className="flex items-center gap-3 px-4 py-6">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lg shadow-primary/30">
-          <Mic className="h-5 w-5" />
-        </div>
-        <div>
-          <h1 className="text-lg font-bold tracking-tight">InterviewAI</h1>
-          <p className="text-xs text-muted-foreground">Your AI Coach</p>
-        </div>
+        <Link
+          href="/dashboard"
+          onClick={onNavigate}
+          className="flex items-center gap-3 rounded-xl outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-lg shadow-primary/30">
+            <Mic className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold tracking-tight">InterviewAI</h1>
+            <p className="text-xs text-muted-foreground">Your AI Coach</p>
+          </div>
+        </Link>
       </div>
 
       <ScrollArea className="flex-1 px-3">
@@ -104,7 +110,7 @@ function SidebarNavContent({ onNavigate }: { onNavigate?: () => void }) {
       </ScrollArea>
 
       <div className="border-t border-border/50 p-4">
-        <UserMenu />
+        <UserMenu variant="sidebar" />
       </div>
     </>
   );

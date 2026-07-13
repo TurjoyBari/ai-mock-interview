@@ -1,57 +1,15 @@
 import Link from "next/link";
 import { auth } from "@clerk/nextjs/server";
 import {
-  Mic,
-  Brain,
-  Code,
-  BarChart3,
-  FileText,
-  Sparkles,
   ArrowRight,
   CheckCircle2,
   Mail,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SiteNavbar } from "@/components/layout/site-navbar";
-
-const features = [
-  {
-    icon: Brain,
-    title: "AI-Powered Interviews",
-    description:
-      "Practice with Google Gemini that adapts to your answers, asks follow-ups, and simulates real interviewers.",
-  },
-  {
-    icon: Mic,
-    title: "Voice & Text Modes",
-    description:
-      "Real-time speech-to-text, natural AI voice responses, and voice activity detection.",
-  },
-  {
-    icon: Code,
-    title: "Coding Interviews",
-    description:
-      "Integrated Monaco editor with syntax highlighting, test cases, and AI code evaluation.",
-  },
-  {
-    icon: BarChart3,
-    title: "Detailed Analytics",
-    description:
-      "Track scores, identify weak topics, and visualize your improvement over time.",
-  },
-  {
-    icon: FileText,
-    title: "Resume & JD Matching",
-    description:
-      "Upload your resume, match against job descriptions, and get tailored interview questions.",
-  },
-  {
-    icon: Sparkles,
-    title: "Personal AI Coach",
-    description:
-      "Get weekly study plans, company-specific roadmaps, and personalized improvement suggestions.",
-  },
-];
+import { FeaturesShowcase } from "@/components/features/features-showcase";
+import { FEATURES } from "@/data/features";
 
 const companies = [
   "Google",
@@ -72,7 +30,7 @@ export default async function LandingPage() {
     <div id="home" className="min-h-screen scroll-smooth bg-background">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -left-1/4 top-0 h-[600px] w-[600px] rounded-full bg-primary/10 blur-3xl" />
-        <div className="absolute -right-1/4 top-1/3 h-[500px] w-[500px] rounded-full bg-violet-500/10 blur-3xl" />
+        <div className="absolute -right-1/4 top-1/3 h-[500px] w-[500px] rounded-full bg-cyan-500/10 blur-3xl" />
         <div className="absolute bottom-0 left-1/3 h-[400px] w-[400px] rounded-full bg-blue-500/10 blur-3xl" />
       </div>
 
@@ -87,7 +45,7 @@ export default async function LandingPage() {
             </div>
             <h1 className="text-5xl font-bold tracking-tight sm:text-6xl lg:text-7xl">
               Master Your Next{" "}
-              <span className="bg-gradient-to-r from-primary to-violet-500 bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-primary to-cyan-500 bg-clip-text text-transparent">
                 Interview
               </span>
             </h1>
@@ -121,33 +79,7 @@ export default async function LandingPage() {
           </div>
         </section>
 
-        <section
-          id="features"
-          className="container mx-auto max-w-6xl scroll-mt-24 px-4 py-16"
-        >
-          <div className="mb-10 text-center">
-            <h2 className="text-3xl font-bold tracking-tight">Features</h2>
-            <p className="mt-2 text-muted-foreground">
-              Everything you need to prepare with confidence
-            </p>
-          </div>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-            {features.map((feature) => (
-              <div
-                key={feature.title}
-                className="rounded-2xl border border-border/50 bg-card/50 p-6 backdrop-blur-sm"
-              >
-                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <feature.icon className="h-5 w-5" />
-                </div>
-                <h3 className="mb-2 text-lg font-semibold">{feature.title}</h3>
-                <p className="text-sm text-muted-foreground">
-                  {feature.description}
-                </p>
-              </div>
-            ))}
-          </div>
-        </section>
+        <FeaturesShowcase features={FEATURES} />
 
         <section
           id="about"
@@ -240,7 +172,7 @@ export default async function LandingPage() {
           id="contact"
           className="container mx-auto max-w-6xl scroll-mt-24 px-4 pb-24 pt-8"
         >
-          <div className="rounded-3xl border border-border/50 bg-gradient-to-br from-primary/10 via-card/60 to-violet-500/10 p-10 text-center backdrop-blur-sm">
+          <div className="rounded-3xl border border-border/50 bg-gradient-to-br from-primary/10 via-card/60 to-cyan-500/10 p-10 text-center backdrop-blur-sm">
             <Mail className="mx-auto mb-4 h-8 w-8 text-primary" />
             <h2 className="mb-3 text-3xl font-bold tracking-tight">Contact</h2>
             <p className="mx-auto mb-6 max-w-xl text-muted-foreground">
